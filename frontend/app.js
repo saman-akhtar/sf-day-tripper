@@ -80,6 +80,7 @@ const BUCKET_FALLBACK = {
   parks_recreation: { emoji: "🌳", label: "Parks & Recreation" },
   arts_sights: { emoji: "🎨", label: "Arts & Sights" },
   shopping: { emoji: "🛍️", label: "Shopping" },
+  place_of_worship: { emoji: "⛪", label: "Place of Worship" },
   everything_else: { emoji: "📍", label: "Place" },
 };
 
