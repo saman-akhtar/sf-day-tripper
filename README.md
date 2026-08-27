@@ -8,7 +8,7 @@ Most "AI itinerary" tools are a chat prompt that returns prose. The actual hard 
 
 ## How it works
 
-1. **Data**: `data/extract_places.py` pulls ~50k SF places from Overture (bbox around SF city limits, `type=place`), keeps only entries with `confidence >= 0.5` and a name, and buckets each into one of 5 categories (Food & Drink, Parks & Recreation, Arts & Sights, Shopping, Everything else) using Overture's own top-level taxonomy hierarchy. Output is one flat `places_sf.geojson` (~13MB), loaded into memory at server startup, no database.
+1. **Data**: `data/extract_places.py` pulls ~50k SF places from Overture (bbox around SF city limits, `type=place`), keeps only entries with `confidence >= 0.5` and a name, and buckets each into one of 6 categories (Food & Drink, Parks & Recreation, Arts & Sights, Shopping, Place of Worship, Everything else) using Overture's own top-level taxonomy hierarchy, then curated per-bucket to cut non-touristy noise (see `OVERTURE_DATA_ISSUES.md`). Output is one flat `places_sf.geojson` (~14MB), loaded into memory at server startup, no database.
 2. **Clustering**: for an N-day trip, places matching the selected interests are split into N geographic clusters via a small hand-rolled k-means (lat/lon). Each cluster becomes one day.
 3. **Scheduling**: within a day, stops are picked and ordered greedily starting from the day's start time, breakfast first, then nearest attractions, with a coffee break worked in mid-morning and lunch worked in once the clock passes noon (filtered by food style, if any). Each stop gets an estimated visit duration by category (a heuristic, see Trade-offs) and a travel time to the next stop based on straight-line distance and transport mode; the day stops adding stops once it would run past the end time.
 4. **Transport mode** sets both the search radius for food stops (walking ~1.2km, transit ~3km, car ~8km) and the assumed travel speed between stops (walking 4.5km/h, transit 15km/h, car 22km/h); it does not currently bias toward actual transit lines.
@@ -45,6 +45,29 @@ uvicorn backend.main:app --reload --port 8000   # run from the repo root
 ```
 
 Then open http://localhost:8000.
+
+## Testing
+
+```
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
+
+24 tests, two kinds:
+
+- **`tests/test_data_quality.py`** — regression tests against the built `places_sf.geojson`
+  itself, one per real data bug found and fixed (see `OVERTURE_DATA_ISSUES.md`): no apartment
+  buildings in touristy buckets, no fake geotagged national parks, the Golden Gate Bridge
+  record is actually near the Golden Gate Bridge, no dental offices/parking companies in
+  Food & Drink, Parks & Recreation excludes private gyms, Place of Worship is its own bucket.
+  These run against whatever `places_sf.geojson` is currently checked in — re-run them after
+  refreshing the Overture extract to catch a newly-introduced version of any of these bugs.
+- **`tests/test_api.py`** — end-to-end tests against the FastAPI app (`TestClient`, no server
+  needed): a default itinerary has meals and stops, a 5-day trip returns 5 days, Place of
+  Worship stays excluded unless selected, the Golden Gate Bridge is prioritized over lesser
+  landmarks near the Marina, a halal+Mexican+Korean combo (a real zero-overlap case in the
+  data) falls back gracefully instead of erroring, a 1-hour day window doesn't crash, every
+  single interest returns results on its own, and the swap/alternatives endpoint works.
 
 ## Deploying (Render)
 
