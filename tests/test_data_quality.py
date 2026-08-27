@@ -1,7 +1,6 @@
-"""Regression tests for data-quality bugs found and fixed in extraction
-(see OVERTURE_DATA_ISSUES.md). Each test guards one specific bug so a future
-change to extract_places.py or a re-pulled Overture extract can't silently
-reintroduce it.
+"""Regression tests for data-quality bugs found and fixed in extraction.
+Each test guards one specific bug so a future change to extract_places.py
+or a re-pulled Overture extract can't silently reintroduce it.
 """
 import re
 

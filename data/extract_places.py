@@ -45,8 +45,9 @@ PLACE_OF_WORSHIP_CATEGORIES = {
 LANDMARK_MIN_CONFIDENCE = 0.95
 
 # A handful of other unmistakably famous SF sights, verified by *exact* name match (substring
-# matching pulls in noise like "Twin Peaks Auto Care") plus real-world coordinates — an
-# exact name isn't enough on its own (see OVERTURE_DATA_ISSUES.md §14). Alcatraz and Lombard
+# matching pulls in noise like "Twin Peaks Auto Care") plus real-world coordinates: an
+# exact name alone isn't enough (found "Ferry Building, Embarcadero" geocoded 6.9km off).
+# Alcatraz and Lombard
 # Street are deliberately excluded (boat-only / no Places entry at all).
 FAMOUS_LANDMARK_COORDS = {
     "Coit Tower": (37.8024, -122.4058),
@@ -59,10 +60,10 @@ FAMOUS_LANDMARK_TOLERANCE_KM = 2.0
 
 
 # A record can have a name that clearly refers to a famous bridge and still be geocoded
-# nowhere near the real thing (see OVERTURE_DATA_ISSUES.md §14, §22). Fuzzy word match so
-# typos still count, checked against the bridge's real-world coordinates.
+# nowhere near the real thing. Fuzzy word match so typos still count, checked against the
+# bridge's real-world coordinates.
 KNOWN_BRIDGES = [
-    (("golden", "bridge"), (37.8199, -122.4783)),  # not "gate" too — see §22
+    (("golden", "bridge"), (37.8199, -122.4783)),  # not "gate" too, catches "Golen Gate Bridge" typos
     (("bay", "bridge"), (37.7983, -122.3778)),
 ]
 KNOWN_BRIDGE_TOLERANCE_KM = 3.0
@@ -97,8 +98,8 @@ def is_landmark(name: str, primary_cat: str, confidence: float, lat: float = Non
     return True
 
 
-# Same check as is_landmark's bridge branch, but independent of primary category — a fake
-# can hide under "monument" with just "bridge" in alternate_categories (see §22).
+# Same check as is_landmark's bridge branch, but independent of primary category: a fake
+# can hide under "monument" with just "bridge" in alternate_categories.
 def is_fake_bridge_mention(name: str, lat: float, lon: float) -> bool:
     for required_words, (target_lat, target_lon) in KNOWN_BRIDGES:
         if not _name_matches_bridge(name, required_words):
@@ -109,8 +110,8 @@ def is_fake_bridge_mention(name: str, lat: float, lon: float) -> bool:
     return False
 
 
-# Municipal infrastructure and government offices occasionally get tagged "monument" — see
-# OVERTURE_DATA_ISSUES.md §21.
+# Municipal infrastructure and government offices occasionally get tagged "monument"
+# (found "Westside Pump Station" and "franchise tax board" both tagged this way).
 NON_SIGHT_ALT_CATEGORIES = {"gas_station"}
 NON_SIGHT_NAME_TERMS = ("pump station", "tax board", "dmv", "post office")
 
@@ -131,8 +132,7 @@ SHOPPING_WORTH_VISITING = {
 }
 
 # Same problem, worse: 68% of Overture's "sports_and_recreation" bucket is private fitness
-# businesses (gyms, yoga/dance/martial arts studios, personal trainers), not places to visit
-# — see OVERTURE_DATA_ISSUES.md §23.
+# businesses (gyms, yoga/dance/martial arts studios, personal trainers), not places to visit.
 PARKS_RECREATION_WORTH_VISITING = {
     "park", "national_park", "state_park", "playground", "hiking_trail",
     "mountain_bike_trails", "dog_park", "skate_park", "boating_places",
@@ -153,9 +153,9 @@ def looks_like_non_food(name: str) -> bool:
     return any(term in lower for term in NON_FOOD_NAME_TERMS)
 
 
-# Bad crowd-sourced check-ins: fake national park records geotagged in downtown SF (see §2,
-# §20). Scoped to parks_recreation only so a real business named after one (e.g. "Yosemite
-# Place," an art gallery on the real Yosemite Ave) stays untouched in Arts & Sights.
+# Bad crowd-sourced check-ins: fake national park records geotagged in downtown SF. Scoped
+# to parks_recreation only so a real business named after one (e.g. "Yosemite Place," an
+# art gallery on the real Yosemite Ave) stays untouched in Arts & Sights.
 FAR_AWAY_PARK_NAME_TERMS = (
     "yosemite", "grand canyon", "sequoia national park", "yellowstone", "zion national park",
     "joshua tree", "death valley", "glacier national park", "mount rainier", "half dome",
@@ -169,8 +169,8 @@ def looks_like_fake_park(name: str) -> bool:
 
 
 # Ordinary apartment buildings surface a private on-site amenity (a resident gym, a
-# "landmark_and_historical_building" architecture tag) as the primary category — see §19.
-# Most carry no "apartments" category signal at all, so a name check catches the rest.
+# "landmark_and_historical_building" architecture tag) as the primary category. Most carry
+# no "apartments" category signal at all, so a name check catches the rest.
 APARTMENT_NAME_RE = re.compile(r"\bapartments?\b", re.IGNORECASE)
 
 
@@ -210,7 +210,7 @@ def dedupe_landmarks(features):
         by_name.append(f)
 
     # Pass 2: radius dedup for near-identical but differently-named typos, scoped to the
-    # SAME category only — without that guard, a mislabeled bridge record 165m from Pier 39
+    # SAME category only. Without that guard, a mislabeled bridge record 165m from Pier 39
     # silently ate Pier 39 as a "duplicate" despite being an unrelated place.
     kept = []
     for f in by_name:

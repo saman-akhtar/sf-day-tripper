@@ -5,7 +5,7 @@ a greedy, clock-aware schedule within a day.
 Known simplifications (documented in README):
 - Distances are haversine (straight-line), not real walking/driving/transit routes.
 - Visit durations are a category-based heuristic (Overture has no duration data),
-  e.g. museum ~90min, landmark ~20min, coffee ~20min — not measured, estimated.
+  e.g. museum ~90min, landmark ~20min, coffee ~20min, not measured, estimated.
 - Travel time between stops is distance / an assumed average speed per transport
   mode, not a real routed ETA.
 """
@@ -25,7 +25,7 @@ MIN_TRAVEL_MINUTES = 5
 MIN_CONFIDENCE = 0.5
 # "Notable sight" is approximated by category, not actual popularity (see README).
 # Max distance from a day's cluster centroid for a landmark to be assigned to that day
-# (see generate_itinerary) — generous since a famous sight is worth a special trip.
+# (see generate_itinerary), generous since a famous sight is worth a special trip.
 LANDMARK_BOOST_RADIUS_KM = 8.0
 MAX_LANDMARKS_PER_DAY = 2
 # Trigger a meal early once this little time remains before day_end, so a long visit
@@ -258,10 +258,9 @@ def build_day(cluster_places, food_pool, food_style, cuisines, radius_km, pace, 
                 if landmark_count < MAX_LANDMARKS_PER_DAY else []
             )
             if nearby_landmarks:
-                # No popularity data exists to rank landmarks by (see README) — this is a
-                # hand-picked tier so the Golden Gate Bridge, the single most iconic thing
-                # in SF, wins over a minor bridge fragment even when the fragment happens
-                # to be closer, rather than picking on raw nearest-distance alone.
+                # No popularity data exists to rank landmarks by, so this is a hand-picked
+                # tier: the Golden Gate Bridge wins over a minor bridge fragment even when
+                # the fragment happens to be closer, rather than picking on distance alone.
                 candidate = min(nearby_landmarks, key=lambda p: (landmark_priority(p), haversine_km(last, p)))
                 role = "stop"
                 landmark_count += 1
@@ -379,7 +378,7 @@ def generate_itinerary(interests, food_style, pace, days, transport_mode, day_st
         clusters.sort(key=len, reverse=True)  # largest clusters first so sparse days end up last
 
     # Assign each landmark to whichever day's cluster centroid it's nearest to, rather than
-    # whichever k-means cluster it happened to fall into — with only ~10 landmarks citywide,
+    # whichever k-means cluster it happened to fall into. With only ~10 landmarks citywide,
     # k-means (optimizing over thousands of ordinary places) scatters them essentially at
     # random, which was silently starving the landmark boost in build_day.
     landmark_pool = [p for p in attraction_pool if p.get("is_landmark")]
@@ -416,7 +415,7 @@ def generate_itinerary(interests, food_style, pace, days, transport_mode, day_st
 
 def find_alternatives(lat, lon, role, category, bucket, food_style, exclude_ids, limit=2):
     """Nearby swap candidates for one stop, matched by its role (same meal-type rules
-    used during generation) or, for a generic 'stop', the same category — falling back
+    used during generation) or, for a generic 'stop', the same category, falling back
     to the same bucket if there aren't enough exact-category matches nearby."""
     origin = {"lat": lat, "lon": lon}
     exclude_ids = set(exclude_ids)

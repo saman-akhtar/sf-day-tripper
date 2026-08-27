@@ -71,8 +71,8 @@ def test_golden_gate_bridge_prioritized_over_lesser_landmarks_in_marina():
 
 
 def test_halal_plus_unavailable_cuisine_combo_falls_back_gracefully():
-    # No halal+Mexican/Korean places exist in the extract (see OVERTURE_DATA_ISSUES.md §18);
-    # the app should drop the cuisine constraint rather than error or return nothing.
+    # No halal+Mexican/Korean places exist in the extract; the app should drop the
+    # cuisine constraint rather than error or return nothing.
     days = plan(interests=["food_drink"], food_style="halal", cuisines=["mexican", "korean"])
     assert len(all_stops(days)) > 0
 

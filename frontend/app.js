@@ -229,7 +229,7 @@ function buildDaySection(day, stay) {
 }
 
 function buildFullItineraryText(days, stay) {
-  const lines = ["SF Day-Tripper — Your Itinerary"];
+  const lines = ["SF Day-Tripper: Your Itinerary"];
   if (stay && stay.name) lines.push(`Staying near: ${stay.name}`);
   lines.push("");
   days.forEach((day) => {
@@ -304,7 +304,7 @@ function renderItinerary(dayResults, stay) {
     if (day.stops.length === 0) {
       const empty = document.createElement("p");
       empty.className = "empty-state";
-      empty.textContent = "Not enough matching places found for this day — try widening your interests or food style.";
+      empty.textContent = "Not enough matching places found for this day. Try widening your interests or food style.";
       card.appendChild(empty);
     }
 
