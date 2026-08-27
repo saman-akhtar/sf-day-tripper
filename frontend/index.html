@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SF Day-Tripper</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <header>
+    <h1>SF Day-Tripper</h1>
+    <p>A personalized walking (or driving) itinerary for San Francisco.</p>
+  </header>
+
+  <main>
+    <form id="trip-form">
+      <label>
+        Where are you staying?
+        <select id="stay_neighborhood"></select>
+      </label>
+
+      <label>
+        Trip length (days)
+        <input type="number" id="days" min="1" max="5" value="1">
+      </label>
+
+      <label>
+        Start each day at
+        <input type="time" id="day_start" value="09:00">
+      </label>
+
+      <label>
+        End each day by
+        <input type="time" id="day_end" value="20:00">
+      </label>
+
+      <label>
+        Pace
+        <select id="pace">
+          <option value="laid_back">Laid-back</option>
+          <option value="balanced" selected>Balanced</option>
+          <option value="aggressive">Aggressive</option>
+        </select>
+      </label>
+
+      <label>
+        Getting around
+        <select id="transport_mode">
+          <option value="walking" selected>Walking</option>
+          <option value="public_transit">Public transit</option>
+          <option value="own_car">Own car</option>
+        </select>
+      </label>
+
+      <label>
+        Food style
+        <select id="food_style">
+          <option value="all" selected>No preference</option>
+          <option value="vegetarian">Vegetarian</option>
+          <option value="vegan">Vegan</option>
+          <option value="halal">Halal</option>
+          <option value="kosher">Kosher</option>
+          <option value="gluten_free">Gluten-free</option>
+        </select>
+      </label>
+
+      <fieldset>
+        <legend>Cuisines (optional, mix and match)</legend>
+        <label class="checkbox"><input type="checkbox" name="cuisines" value="american"> American</label>
+        <label class="checkbox"><input type="checkbox" name="cuisines" value="mexican"> Mexican</label>
+        <label class="checkbox"><input type="checkbox" name="cuisines" value="chinese"> Chinese</label>
+        <label class="checkbox"><input type="checkbox" name="cuisines" value="italian"> Italian</label>
+        <label class="checkbox"><input type="checkbox" name="cuisines" value="japanese"> Japanese</label>
+        <label class="checkbox"><input type="checkbox" name="cuisines" value="thai"> Thai</label>
+        <label class="checkbox"><input type="checkbox" name="cuisines" value="indian"> Indian</label>
+        <label class="checkbox"><input type="checkbox" name="cuisines" value="french"> French</label>
+        <label class="checkbox"><input type="checkbox" name="cuisines" value="korean"> Korean</label>
+        <label class="checkbox"><input type="checkbox" name="cuisines" value="vietnamese"> Vietnamese</label>
+        <label class="checkbox"><input type="checkbox" name="cuisines" value="mediterranean"> Mediterranean</label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Interests</legend>
+        <label class="checkbox"><input type="checkbox" name="interests" value="food_drink" checked> Food &amp;
+          Drink</label>
+        <label class="checkbox"><input type="checkbox" name="interests" value="parks_recreation" checked> Parks &amp;
+          Recreation</label>
+        <label class="checkbox"><input type="checkbox" name="interests" value="arts_sights" checked> Arts &amp;
+          Sights</label>
+        <label class="checkbox"><input type="checkbox" name="interests" value="shopping" checked> Shopping</label>
+        <label class="checkbox"><input type="checkbox" name="interests" value="everything_else"> Everything else</label>
+      </fieldset>
+
+      <button type="submit">Plan my trip</button>
+    </form>
+
+    <section id="results">
+      <div id="map"></div>
+      <div id="day-bar">
+        <div id="day-tabs"></div>
+        <span class="tooltip-wrap">
+          <button type="button" id="download-btn">⬇</button>
+          <span class="tooltip-text" id="download-tooltip">Download itinerary</span>
+        </span>
+      </div>
+      <div id="itinerary"></div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+
+</html>
