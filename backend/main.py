@@ -32,7 +32,7 @@ FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
 
 class TripRequest(BaseModel):
-    interests: list[Literal["food_drink", "parks_recreation", "arts_sights", "shopping", "everything_else"]] = Field(
+    interests: list[Literal["food_drink", "parks_recreation", "arts_sights", "shopping", "place_of_worship", "everything_else"]] = Field(
         default_factory=lambda: ["food_drink", "parks_recreation", "arts_sights", "shopping"]
     )
     food_style: Literal["all", "vegetarian", "vegan", "halal", "kosher", "gluten_free"] = "all"

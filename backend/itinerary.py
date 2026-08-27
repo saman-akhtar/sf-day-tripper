@@ -20,11 +20,13 @@ from backend.data_store import (
 
 MODE_RADIUS_KM = {"walking": 1.2, "public_transit": 3.0, "own_car": 8.0}
 MODE_SPEED_KMH = {"walking": 4.5, "public_transit": 15, "own_car": 22}
-PACE_DURATION_MULTIPLIER = {"laid_back": 1.3, "balanced": 1.0, "aggressive": 0.75}
+PACE_DURATION_MULTIPLIER = {"laid_back": 1.5, "balanced": 1.0, "aggressive": 0.75}
 MIN_TRAVEL_MINUTES = 5
 MIN_CONFIDENCE = 0.5
 # "Notable sight" is approximated by category, not actual popularity (see README).
-LANDMARK_BOOST_RADIUS_KM = 2.5
+# Max distance from a day's cluster centroid for a landmark to be assigned to that day
+# (see generate_itinerary) — generous since a famous sight is worth a special trip.
+LANDMARK_BOOST_RADIUS_KM = 8.0
 MAX_LANDMARKS_PER_DAY = 2
 # Trigger a meal early once this little time remains before day_end, so a long visit
 # can't skip straight past the normal clock-time trigger.
@@ -67,6 +69,23 @@ def cuisine_of(place):
         if all_cats & cats:
             return cuisine
     return None
+
+
+# No popularity data exists, so "most iconic" is hand-ranked: the Golden Gate Bridge wins
+# landmark ties, then the other verified famous sights, then lesser bridge fragments.
+ICONIC_LANDMARK_NAMES = {
+    "Coit Tower", "Palace of Fine Arts, Marina District, SF",
+    "Ferry Building, Embarcadero", "Twin Peaks", "Pier 39",
+}
+
+
+def landmark_priority(place):
+    name = place["name"].lower()
+    if "golden" in name and "bridge" in name:
+        return 0
+    if place["name"] in ICONIC_LANDMARK_NAMES:
+        return 1
+    return 2
 
 
 def estimate_duration_minutes(place, pace):
@@ -132,7 +151,8 @@ def kmeans_clusters(points, k, iterations=25, seed=42):
 
 
 def build_day(cluster_places, food_pool, food_style, cuisines, radius_km, pace, transport_mode,
-              day_start_min, day_end_min, stay_point=None, stay_name=None, trip_used_ids=None):
+              day_start_min, day_end_min, stay_point=None, stay_name=None, trip_used_ids=None,
+              day_landmarks=None):
     if not cluster_places:
         return {"stops": [], "total_distance_km": 0, "total_travel_minutes": 0}
 
@@ -140,6 +160,7 @@ def build_day(cluster_places, food_pool, food_style, cuisines, radius_km, pace, 
     # Exclude anything already visited on an earlier day of this trip.
     cluster_places = [p for p in cluster_places if p["id"] not in trip_used_ids]
     food_pool = [p for p in food_pool if p["id"] not in trip_used_ids]
+    day_landmarks = [p for p in (day_landmarks or []) if p["id"] not in trip_used_ids]
     if not cluster_places:
         return {"stops": [], "total_distance_km": 0, "total_travel_minutes": 0}
 
@@ -228,23 +249,28 @@ def build_day(cluster_places, food_pool, food_style, cuisines, radius_km, pace, 
 
         if candidate is None:
             avail = [p for p in remaining_attractions if p["id"] not in used_ids]
-            # Priority within a generic stop: a nearby landmark first, measured from the
-            # day's fixed cluster centroid (not `last`, which drifts and could chain distant
-            # landmarks together across the city).
             if landmark_count >= MAX_LANDMARKS_PER_DAY:
                 avail = [p for p in avail if not p.get("is_landmark")]
-            if avail:
-                nearby_landmarks = (
-                    [p for p in avail if p.get("is_landmark") and haversine_km(centroid, p) <= LANDMARK_BOOST_RADIUS_KM]
-                    if landmark_count < MAX_LANDMARKS_PER_DAY else []
-                )
+            # Pre-assigned per day by generate_itinerary, not gated by k-means membership
+            # (k-means scatters the ~10 citywide landmarks essentially at random otherwise).
+            nearby_landmarks = (
+                [p for p in day_landmarks if p["id"] not in used_ids]
+                if landmark_count < MAX_LANDMARKS_PER_DAY else []
+            )
+            if nearby_landmarks:
+                # No popularity data exists to rank landmarks by (see README) — this is a
+                # hand-picked tier so the Golden Gate Bridge, the single most iconic thing
+                # in SF, wins over a minor bridge fragment even when the fragment happens
+                # to be closer, rather than picking on raw nearest-distance alone.
+                candidate = min(nearby_landmarks, key=lambda p: (landmark_priority(p), haversine_km(last, p)))
+                role = "stop"
+                landmark_count += 1
+            elif avail:
                 # Shopping is filler once nothing more compelling is nearby.
                 non_shopping = [p for p in avail if p["bucket"] != "shopping"]
-                pick_from = nearby_landmarks or non_shopping or avail
+                pick_from = non_shopping or avail
                 candidate = min(pick_from, key=lambda p: haversine_km(last, p))
                 role = "stop"
-                if candidate.get("is_landmark"):
-                    landmark_count += 1
             elif not lunch_done and lunch_candidates:
                 avail2 = [p for p in lunch_candidates if p["id"] not in used_ids]
                 if avail2:
@@ -352,12 +378,32 @@ def generate_itinerary(interests, food_style, pace, days, transport_mode, day_st
     else:
         clusters.sort(key=len, reverse=True)  # largest clusters first so sparse days end up last
 
+    # Assign each landmark to whichever day's cluster centroid it's nearest to, rather than
+    # whichever k-means cluster it happened to fall into — with only ~10 landmarks citywide,
+    # k-means (optimizing over thousands of ordinary places) scatters them essentially at
+    # random, which was silently starving the landmark boost in build_day.
+    landmark_pool = [p for p in attraction_pool if p.get("is_landmark")]
+    cluster_centroids = [
+        {"lat": sum(p["lat"] for p in c) / len(c), "lon": sum(p["lon"] for p in c) / len(c)} if c else None
+        for c in clusters
+    ]
+    day_landmarks = [[] for _ in clusters]
+    for lm in landmark_pool:
+        best_day, best_dist = None, float("inf")
+        for i, centroid in enumerate(cluster_centroids):
+            if centroid is not None:
+                dist = haversine_km(centroid, lm)
+                if dist < best_dist:
+                    best_day, best_dist = i, dist
+        if best_day is not None and best_dist <= LANDMARK_BOOST_RADIUS_KM:
+            day_landmarks[best_day].append(lm)
+
     days_out = []
     trip_used_ids = set()
     for i, cluster in enumerate(clusters):
         day_result = build_day(cluster, food_pool, food_style, cuisines, radius_km, pace, transport_mode,
                                 day_start_min, day_end_min, stay_point=stay_point, stay_name=stay_name,
-                                trip_used_ids=trip_used_ids)
+                                trip_used_ids=trip_used_ids, day_landmarks=day_landmarks[i])
         trip_used_ids.update(s["id"] for s in day_result["stops"] if s["role"] != "home")
         days_out.append({
             "day": i + 1,
