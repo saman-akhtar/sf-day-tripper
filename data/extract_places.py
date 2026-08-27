@@ -5,8 +5,10 @@ and writes a single trimmed GeoJSON file for the app to load at startup.
 Usage:
     .venv/bin/python data/extract_places.py
 """
+import difflib
 import json
 import math
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -37,36 +39,59 @@ LANDMARK_MIN_CONFIDENCE = 0.95
 # name match (substring matching pulls in things like "Twin Peaks Auto Care"). Deliberately
 # short: Alcatraz is boat-only (unreachable by this app's transport modes) and Lombard
 # Street has no Places entry (it's a road, in Overture's Transportation theme instead).
-FAMOUS_LANDMARK_NAMES = {
-    "Coit Tower",
-    "Palace of Fine Arts, Marina District, SF",
-    "Ferry Building, Embarcadero",
-    "Twin Peaks",
-    "Pier 39",
+# Paired with each name's real-world coordinates: an exact-name match isn't enough on its
+# own (found "Ferry Building, Embarcadero" geocoded 6.9km away in Bernal Heights, the same
+# bad-coordinate issue as the bridges below), so a match still has to be near the real spot.
+FAMOUS_LANDMARK_COORDS = {
+    "Coit Tower": (37.8024, -122.4058),
+    "Palace of Fine Arts, Marina District, SF": (37.8029, -122.4484),
+    "Ferry Building, Embarcadero": (37.7955, -122.3937),
+    "Twin Peaks": (37.7544, -122.4477),
+    "Pier 39": (37.8087, -122.4098),
 }
+FAMOUS_LANDMARK_TOLERANCE_KM = 2.0
 
 
-# A record can have the exact right name and category and still be geocoded nowhere near
-# the real place (found "Golden Gate Bridge" / category "bridge" / confidence 0.979 sitting
-# in downtown SF, ~7km from the actual bridge). Name and category dedup can't catch this
-# since it's not a near-duplicate of another record, so known famous bridges are checked
-# against their real-world coordinates directly.
-KNOWN_BRIDGE_COORDS = {
-    "Golden Gate Bridge": (37.8199, -122.4783),
-    "San Francisco-Oakland Bay Bridge": (37.7983, -122.3778),
-}
+# A record can have a name that clearly refers to a famous bridge and still be geocoded
+# nowhere near the real thing (found "Golden Gate Bridge" / category "bridge" / confidence
+# 0.979 sitting in downtown SF, ~7km from the actual bridge; also a typo'd "Golen Gate
+# Bridge San Francisco" 5.5km off). Name/category dedup can't catch this since these aren't
+# near-duplicates of another record, so any bridge whose name matches a famous bridge
+# (fuzzily, so typos still match) is checked against that bridge's real-world coordinates.
+KNOWN_BRIDGES = [
+    (("golden", "gate", "bridge"), (37.8199, -122.4783)),
+    (("bay", "bridge"), (37.7983, -122.3778)),
+]
 KNOWN_BRIDGE_TOLERANCE_KM = 3.0
+
+
+def _name_matches_bridge(name: str, required_words: tuple) -> bool:
+    words = re.findall(r"[a-z]+", name.lower())
+    return all(
+        any(difflib.SequenceMatcher(None, w, req).ratio() >= 0.8 for w in words)
+        for req in required_words
+    )
 
 
 def is_landmark(name: str, primary_cat: str, confidence: float, lat: float = None, lon: float = None) -> bool:
     if primary_cat == "bridge" and confidence >= LANDMARK_MIN_CONFIDENCE:
-        target = KNOWN_BRIDGE_COORDS.get(name)
-        if target and lat is not None and lon is not None:
-            dist = haversine_km({"lat": lat, "lon": lon}, {"lat": target[0], "lon": target[1]})
-            if dist > KNOWN_BRIDGE_TOLERANCE_KM:
-                return False
+        if lat is not None and lon is not None:
+            for required_words, (target_lat, target_lon) in KNOWN_BRIDGES:
+                if not _name_matches_bridge(name, required_words):
+                    continue
+                dist = haversine_km({"lat": lat, "lon": lon}, {"lat": target_lat, "lon": target_lon})
+                if dist > KNOWN_BRIDGE_TOLERANCE_KM:
+                    return False
         return True
-    return name in FAMOUS_LANDMARK_NAMES
+
+    target = FAMOUS_LANDMARK_COORDS.get(name)
+    if target is None:
+        return False
+    if lat is not None and lon is not None:
+        dist = haversine_km({"lat": lat, "lon": lon}, {"lat": target[0], "lon": target[1]})
+        if dist > FAMOUS_LANDMARK_TOLERANCE_KM:
+            return False
+    return True
 
 
 # Overture's "shopping" bucket is dominated by everyday retail (grocery, pharmacy,
@@ -82,6 +107,7 @@ SHOPPING_WORTH_VISITING = {
 NON_FOOD_NAME_TERMS = (
     "care home", "assisted living", "nursing home", "hospice", "rehab",
     "convalescent", "memory care", "retirement home", "skilled nursing",
+    "dental", "parking llc",
 )
 
 
