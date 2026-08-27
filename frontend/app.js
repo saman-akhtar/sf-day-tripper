@@ -1,8 +1,7 @@
 const SF_CENTER = [37.7699, -122.4469];
 const DAY_COLORS = ["#0f5b3f", "#b5541c", "#2a5fae", "#8b2e6b", "#c7a01a"];
 
-// Approximate neighborhood centers, hand-curated for a "where are you staying" anchor —
-// not derived from Overture, just rough lat/lon to bias the itinerary toward that area.
+// Approximate neighborhood centers, hand-curated, not derived from Overture.
 const NEIGHBORHOODS = [
   { name: "No preference (let the app pick)", lat: null, lon: null },
   { name: "Union Square / Downtown", lat: 37.7879, lon: -122.4075 },
@@ -32,12 +31,12 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 
 let markersLayer = L.layerGroup().addTo(map);
 
-// Editing state: which stop's alternatives panel is open, and cached results per stop.
 let currentDays = null;
 let currentStay = null;
 let currentFoodStyle = "all";
-let editingKey = null; // `${dayIdx}-${stopIdx}`
+let editingKey = null; // open alternatives panel, `${dayIdx}-${stopIdx}`
 let activeDayIdx = 0;
+let isFirstLoad = true;
 const alternativesCache = {}; // key -> "loading" | array of alternatives
 
 const staySelect = document.getElementById("stay_neighborhood");
@@ -52,8 +51,7 @@ const roleLabel = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner", co
 const roleIcon = { breakfast: "🍳", lunch: "🍽️", dinner: "🍜", coffee: "☕", home: "🏠" };
 const HOME_COLOR = "#c0392b";
 
-// Overture's `category` is a specific string (e.g. "history_museum", "light_rail_station").
-// This maps it down to a human label + icon for a "stop" whose role is otherwise generic.
+// Maps Overture's specific `category` string down to a human label + icon.
 const CATEGORY_RULES = [
   [/museum/, "🏛️", "Museum"],
   [/aquarium/, "🐠", "Aquarium"],
@@ -153,8 +151,7 @@ function buildAlternativesPanel(dayIdx, stopIdx, stop) {
 
   panel.innerHTML = `<p class="alt-hint">Swap "${stop.name}" for:</p>`;
   cached.forEach((alt) => {
-    // Alternatives share the replaced stop's role — a "lunch" swap is still lunch,
-    // a generic "stop" swap gets its own category label so it's clear what it actually is.
+    // Fixed-role swaps (lunch, breakfast...) keep that role's label; generic "stop" swaps get their own category label.
     const isFixedRole = stop.role in roleIcon;
     const altBadgeIcon = isFixedRole ? roleIcon[stop.role] : classifyStop(alt).emoji;
     const altBadgeText = isFixedRole ? roleLabel[stop.role] : classifyStop(alt).label;
@@ -184,8 +181,7 @@ function buildAlternativesPanel(dayIdx, stopIdx, stop) {
 }
 
 function googleMapsUrl(stop) {
-  // Pin the exact Overture coordinate rather than a text search — more reliable
-  // than hoping Google's index has the same business name/address.
+  // Pin the exact coordinate rather than a text search.
   return `https://www.google.com/maps/search/?api=1&query=${stop.lat},${stop.lon}`;
 }
 
@@ -324,9 +320,7 @@ function renderItinerary(dayResults, stay) {
       const badgeColor = isHome ? HOME_COLOR : color;
       const gmapsUrl = googleMapsUrl(stop);
       const addressText = isHome ? "Back to your stay" : (stop.address || stop.category.replaceAll("_", " "));
-      // "Landmark" is only ever shown for backend-verified sights (stop.is_landmark) —
-      // Overture's "landmark_and_historical_building" category text alone is unreliable
-      // (it also tags ordinary apartment buildings), so it's never used as the signal here.
+      // "Landmark" only ever shows for backend-verified sights (stop.is_landmark), never raw category text.
       const kind = isGenericStop ? (stop.is_landmark ? { emoji: "🗽", label: "Landmark" } : classifyStop(stop)) : null;
       const badgeIcon = isGenericStop ? kind.emoji : (roleIcon[stop.role] || "");
       const badgeText = isGenericStop ? kind.label : (roleLabel[stop.role] || "Stop");
@@ -413,6 +407,11 @@ document.getElementById("trip-form").addEventListener("submit", async (e) => {
   button.disabled = true;
   button.textContent = "Planning…";
 
+  if (isFirstLoad) {
+    document.getElementById("itinerary").innerHTML =
+      `<div class="loading-state"><div class="spinner"></div><p>Building your first itinerary…</p></div>`;
+  }
+
   try {
     const res = await fetch("/api/itinerary", {
       method: "POST",
@@ -432,6 +431,7 @@ document.getElementById("trip-form").addEventListener("submit", async (e) => {
   } finally {
     button.disabled = false;
     button.textContent = "Plan my trip";
+    isFirstLoad = false;
   }
 });
 

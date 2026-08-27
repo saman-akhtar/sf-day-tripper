@@ -16,9 +16,7 @@ FOOD_STYLE_CATEGORIES = {
     "gluten_free": {"gluten_free_restaurant"},
 }
 
-# Cuisine-specific `*_restaurant` categories, curated to ones with real presence in the
-# SF extract (checked counts directly — e.g. "british_restaurant" exists but only has 3
-# entries city-wide, too sparse to offer as a filter without starving the itinerary).
+# Curated to cuisines with real presence in the SF extract (sparser ones, e.g. British at 3 entries city-wide, are excluded).
 CUISINE_CATEGORIES = {
     "american": {"american_restaurant"},
     "mexican": {"mexican_restaurant"},
@@ -33,9 +31,7 @@ CUISINE_CATEGORIES = {
     "mediterranean": {"mediterranean_restaurant"},
 }
 
-# Overture has no visit-duration data, so these are estimates by category (minutes),
-# calibrated by hand against typical "worth it" visit lengths. Documented as a
-# heuristic, not measured data, in the README.
+# Hand-estimated visit durations by category (minutes); Overture has no duration data (see README).
 CATEGORY_DURATION_MINUTES = {
     "coffee_shop": 20, "coffee_roastery": 20, "cafe": 30,
     "breakfast_and_brunch_restaurant": 45, "bakery": 20,

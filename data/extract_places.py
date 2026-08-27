@@ -28,27 +28,15 @@ BUCKET_MAP = {
 }
 DEFAULT_BUCKET = "everything_else"
 
-# Tried a broader "landmark_and_historical_building" / "monument" / "national_park" tag
-# override to surface famous sights (Golden Gate Bridge was taxonomy-bucketed under
-# "travel_and_transportation", landing in the unchecked-by-default "everything_else").
-# Reverted: those tags turned out to be applied to historic apartment buildings, an
-# embassy, and even several entries literally named "Yosemite National Park" geotagged
-# in downtown SF (bad crowd-sourced data, not something confidence filtering catches).
-# Kept ONLY the narrow, verified-clean case: primary category "bridge" at high confidence
-# reliably means an actual bridge (Golden Gate, Bay Bridge) and not a card club or a
-# business named "Bridge Investments" (both exist in this dataset at similar confidence).
+# A broader landmark/monument/national_park tag was tried and reverted (applied to
+# ordinary buildings, an embassy, even mislabeled Yosemite entries). Kept only the
+# narrow, verified-clean case: primary category "bridge" at high confidence.
 LANDMARK_MIN_CONFIDENCE = 0.95
 
-# A handful of other unmistakably famous SF sights, individually verified against this
-# extract by *exact* name match (not substring — "Twin Peaks" the landmark exists
-# alongside "Twin Peaks Auto Care", "Twin Peaks Tavern", "Twin Peaks Pizza and Pasta",
-# none of which are the actual hill). Deliberately short: checked several other obvious
-# candidates and skipped them rather than force a bad match —
-# Alcatraz only has a "museum"-tagged "Alcatraz Island" entry, but it's boat-only and none
-# of this app's transport modes (walking/transit/car) can reach it, so recommending it
-# would be a dead end. Lombard Street has no POI entry at all in this data — it's a road,
-# not a business/place, so it lives in Overture's separate Transportation theme, out of
-# reach of a Places-only extraction.
+# A handful of other unmistakably famous SF sights, individually verified by *exact*
+# name match (substring matching pulls in things like "Twin Peaks Auto Care"). Deliberately
+# short: Alcatraz is boat-only (unreachable by this app's transport modes) and Lombard
+# Street has no Places entry (it's a road, in Overture's Transportation theme instead).
 FAMOUS_LANDMARK_NAMES = {
     "Coit Tower",
     "Palace of Fine Arts, Marina District, SF",
@@ -58,32 +46,39 @@ FAMOUS_LANDMARK_NAMES = {
 }
 
 
-def is_landmark(name: str, primary_cat: str, confidence: float) -> bool:
+# A record can have the exact right name and category and still be geocoded nowhere near
+# the real place (found "Golden Gate Bridge" / category "bridge" / confidence 0.979 sitting
+# in downtown SF, ~7km from the actual bridge). Name and category dedup can't catch this
+# since it's not a near-duplicate of another record, so known famous bridges are checked
+# against their real-world coordinates directly.
+KNOWN_BRIDGE_COORDS = {
+    "Golden Gate Bridge": (37.8199, -122.4783),
+    "San Francisco-Oakland Bay Bridge": (37.7983, -122.3778),
+}
+KNOWN_BRIDGE_TOLERANCE_KM = 3.0
+
+
+def is_landmark(name: str, primary_cat: str, confidence: float, lat: float = None, lon: float = None) -> bool:
     if primary_cat == "bridge" and confidence >= LANDMARK_MIN_CONFIDENCE:
+        target = KNOWN_BRIDGE_COORDS.get(name)
+        if target and lat is not None and lon is not None:
+            dist = haversine_km({"lat": lat, "lon": lon}, {"lat": target[0], "lon": target[1]})
+            if dist > KNOWN_BRIDGE_TOLERANCE_KM:
+                return False
         return True
     return name in FAMOUS_LANDMARK_NAMES
 
 
-# Overture's "shopping" taxonomy bucket turned out to be dominated by everyday retail —
-# grocery_store (409), clothing_store (385), furniture_store (230), liquor_store,
-# pharmacy, hardware_store, cosmetic_and_beauty_supplies (89) — not tourist shopping.
-# There's also no "shopping_mall" category in this dataset at all; SF's actual malls are
-# tagged "shopping_center" or "department_store" instead. Checked real counts before
-# curating this allowlist rather than trusting the whole bucket.
+# Overture's "shopping" bucket is dominated by everyday retail (grocery, pharmacy,
+# hardware); curated down to categories tourists actually visit.
 SHOPPING_WORTH_VISITING = {
     "shopping", "shopping_center", "department_store", "gift_shop", "souvenir_shop",
     "boutique", "bookstore", "antique_store", "farmers_market", "arts_and_crafts",
     "toy_store", "jewelry_store", "flowers_and_gifts_shop", "specialty_foods", "outlet_store",
 }
 
-# Overture's own source data occasionally mislabels a care facility as a "restaurant" —
-# found "Sunset Care Home Inc" and "Alcoholics Rehabilitation Association" both with
-# primary category "restaurant" at 0.95+ confidence, nothing in the category signal
-# distinguishes them from a real one. This matters more than typical category noise
-# because food_drink is *always* in the meal candidate pool regardless of what interests
-# the user picked — recommending someone's dinner at a care facility is a much worse
-# failure than a wrong sightseeing stop. A name-based sanity check catches what the
-# category can't; scoped to food_drink only since that's the acute case found.
+# Overture occasionally mislabels a care facility as "restaurant" at high confidence
+# (e.g. "Sunset Care Home Inc"); a name-based check catches what category can't.
 NON_FOOD_NAME_TERMS = (
     "care home", "assisted living", "nursing home", "hospice", "rehab",
     "convalescent", "memory care", "retirement home", "skilled nursing",
@@ -113,12 +108,9 @@ def dedupe_landmarks(features):
     landmarks = sorted((f for f in features if f["is_landmark"]), key=lambda f: -f["confidence"])
     others = [f for f in features if not f["is_landmark"]]
 
-    # Pass 1: exact-name dedup, applied to ALL landmarks (not just the curated famous-name
-    # list) — two records sharing the literal same name are the same real place with
-    # imprecise geocoding, not two different sights. Found this the hard way: two separate
-    # "Golden Gate Bridge" records exist 1.7km apart (well outside the radius dedup below),
-    # so restricting name-dedup to only the curated list missed it. A "Coit Tower" case
-    # (1.4km apart, one mislabeled) is what motivated this in the first place.
+    # Pass 1: exact-name dedup across all landmarks. Two records with the literal same
+    # name are the same place with imprecise geocoding, even if far apart (found two
+    # "Golden Gate Bridge" records 1.7km apart, outside the radius dedup below).
     seen_names = set()
     by_name = []
     for f in landmarks:
@@ -127,13 +119,9 @@ def dedupe_landmarks(features):
         seen_names.add(f["name"])
         by_name.append(f)
 
-    # Pass 2: radius dedup for near-identical DIFFERENT names (typos like "Golen Gate
-    # Bridge San Francisco"), but only within the SAME category. Found a real bug doing
-    # this without that guard: a mislabeled "Golen Gate Bridge San Francisco" record
-    # (category "bridge") has coordinates 165m from Pier 39 — nowhere near the actual
-    # bridge — and being higher-confidence, it silently ate Pier 39 as a "duplicate" even
-    # though they're unrelated places of different types. Comparing only same-category
-    # entries means a mislabeled bridge can only ever collide with another bridge.
+    # Pass 2: radius dedup for near-identical but differently-named typos, scoped to the
+    # SAME category only — without that guard, a mislabeled bridge record 165m from Pier 39
+    # silently ate Pier 39 as a "duplicate" despite being an unrelated place.
     kept = []
     for f in by_name:
         if not any(
@@ -187,7 +175,7 @@ def trim():
         coords = f["geometry"]["coordinates"]
         alternate_categories = categories.get("alternate") or []
         confidence = p.get("confidence") or 0
-        landmark = is_landmark(name, primary_cat, confidence)
+        landmark = is_landmark(name, primary_cat, confidence, lat=coords[1], lon=coords[0])
         bucket = "arts_sights" if landmark else bucket_for(hierarchy)
         if bucket == "shopping" and primary_cat not in SHOPPING_WORTH_VISITING:
             bucket = "everything_else"

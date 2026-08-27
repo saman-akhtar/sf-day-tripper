@@ -23,14 +23,11 @@ MODE_SPEED_KMH = {"walking": 4.5, "public_transit": 15, "own_car": 22}
 PACE_DURATION_MULTIPLIER = {"laid_back": 1.3, "balanced": 1.0, "aggressive": 0.75}
 MIN_TRAVEL_MINUTES = 5
 MIN_CONFIDENCE = 0.5
-# Overture has no popularity/review data, so "notable sight" is approximated by category
-# (landmark/monument/national_park) rather than any actual ranking — see README.
+# "Notable sight" is approximated by category, not actual popularity (see README).
 LANDMARK_BOOST_RADIUS_KM = 2.5
 MAX_LANDMARKS_PER_DAY = 2
-# A single long visit (a 120min museum, say) can jump the clock straight past a meal's
-# fixed trigger time in one step. Triggering a meal early once this little time remains
-# before day_end (in addition to the normal clock-time trigger) means it gets first look
-# before day_end forecloses it, rather than only being checked exactly at a fixed clock time.
+# Trigger a meal early once this little time remains before day_end, so a long visit
+# can't skip straight past the normal clock-time trigger.
 MEAL_RESERVE_BUFFER_MIN = 150
 
 
@@ -140,9 +137,7 @@ def build_day(cluster_places, food_pool, food_style, cuisines, radius_km, pace, 
         return {"stops": [], "total_distance_km": 0, "total_travel_minutes": 0}
 
     trip_used_ids = trip_used_ids or set()
-    # Exclude anything already visited on an earlier day of this same trip — otherwise a
-    # landmark like the Golden Gate Bridge (or even just the breakfast spot) can get
-    # recommended again on day 2, which nobody wants once they've already been there.
+    # Exclude anything already visited on an earlier day of this trip.
     cluster_places = [p for p in cluster_places if p["id"] not in trip_used_ids]
     food_pool = [p for p in food_pool if p["id"] not in trip_used_ids]
     if not cluster_places:
@@ -152,8 +147,7 @@ def build_day(cluster_places, food_pool, food_style, cuisines, radius_km, pace, 
         "lat": sum(p["lat"] for p in cluster_places) / len(cluster_places),
         "lon": sum(p["lon"] for p in cluster_places) / len(cluster_places),
     }
-    # Breakfast is anchored near where the traveler is staying (if given) — realistically
-    # a day starts near the hotel, not near wherever that day's attractions happen to cluster.
+    # Breakfast anchors near the stay location (if given), not the day's attraction cluster.
     breakfast_center = stay_point or centroid
 
     nearby_food = [p for p in food_pool if haversine_km(centroid, p) <= radius_km]
@@ -162,8 +156,7 @@ def build_day(cluster_places, food_pool, food_style, cuisines, radius_km, pace, 
         if stay_point else nearby_food
     )
     breakfast_candidates = [p for p in nearby_breakfast_food if category_in(p, BREAKFAST_CATEGORIES)]
-    # Dietary restriction is the harder constraint (safety-relevant), so if combining it
-    # with a cuisine preference leaves nothing nearby, drop cuisine rather than diet.
+    # Diet is the harder constraint; drop cuisine preference rather than diet if combined they'd leave nothing nearby.
     meal_candidates = [p for p in nearby_food if matches_food_style(p, food_style) and matches_any_cuisine(p, cuisines)]
     if not meal_candidates:
         meal_candidates = [p for p in nearby_food if matches_food_style(p, food_style)]
@@ -193,16 +186,12 @@ def build_day(cluster_places, food_pool, food_style, cuisines, radius_km, pace, 
     lunch_cuisine = None
     coffee_done = False
     landmark_count = 0
-    # Cafes/coffee shops/bakeries are already handled by the dedicated breakfast/coffee
-    # slots above — without this, one could also get picked again as a generic "stop"
-    # right after, producing a cafe-then-coffee-shop back-to-back sequence.
+    # Cafes/coffee shops/bakeries are already handled by the breakfast/coffee slots above.
     non_food_attractions = [p for p in cluster_places if p["bucket"] != "food_drink"]
     if non_food_attractions:
         remaining_attractions = [p for p in non_food_attractions if p["id"] not in used_ids]
     else:
-        # The day's whole cluster is food places (e.g. interests = only "Food & Drink") —
-        # still keep meal-break categories out, but let other restaurants through so an
-        # all-food day isn't cut short right after breakfast/coffee/lunch.
+        # All-food cluster: keep meal-break categories out but let other restaurants through.
         remaining_attractions = [
             p for p in cluster_places
             if p["id"] not in used_ids
@@ -223,8 +212,7 @@ def build_day(cluster_places, food_pool, food_style, cuisines, radius_km, pace, 
         dinner_trigger = min(18 * 60, day_end_min - MEAL_RESERVE_BUFFER_MIN)
         if candidate is None and not dinner_done and current_time >= dinner_trigger and dinner_candidates:
             avail = [p for p in dinner_candidates if p["id"] not in used_ids]
-            # Mix and match: avoid repeating lunch's cuisine for dinner if another option
-            # is available nearby (falls back to it anyway rather than skipping dinner).
+            # Avoid repeating lunch's cuisine for dinner if another option is nearby.
             if lunch_cuisine:
                 avail_diff = [p for p in avail if cuisine_of(p) != lunch_cuisine]
                 avail = avail_diff or avail
@@ -240,16 +228,9 @@ def build_day(cluster_places, food_pool, food_style, cuisines, radius_km, pace, 
 
         if candidate is None:
             avail = [p for p in remaining_attractions if p["id"] not in used_ids]
-            # Priority within a generic stop: a nearby landmark first (Golden Gate Bridge,
-            # ...) — raised from a hard 1-per-day cap to MAX_LANDMARKS_PER_DAY since there
-            # are only ~10 in the whole city after dedup, so a single cap was needlessly
-            # starving them. Measured from the day's cluster centroid (a fixed point), not
-            # from `last` — a real bug: since `last` drifts with each hop, chaining from one
-            # landmark to the next-nearest (each hop within the radius) could walk clear
-            # across the city (Golden Gate Bridge -> Bay Bridge -> 4th St Bridge in one
-            # day). The count cap is still needed on top of that: without a stay-location
-            # anchor, a cluster can be diffuse enough that several distant landmarks each
-            # sit within radius of the same centroid even though they're far from each other.
+            # Priority within a generic stop: a nearby landmark first, measured from the
+            # day's fixed cluster centroid (not `last`, which drifts and could chain distant
+            # landmarks together across the city).
             if landmark_count >= MAX_LANDMARKS_PER_DAY:
                 avail = [p for p in avail if not p.get("is_landmark")]
             if avail:
@@ -257,9 +238,7 @@ def build_day(cluster_places, food_pool, food_style, cuisines, radius_km, pace, 
                     [p for p in avail if p.get("is_landmark") and haversine_km(centroid, p) <= LANDMARK_BOOST_RADIUS_KM]
                     if landmark_count < MAX_LANDMARKS_PER_DAY else []
                 )
-                # Shopping is filler once nothing more compelling is nearby (most of the
-                # bucket is everyday retail even after curation, so it shouldn't crowd out
-                # real sights).
+                # Shopping is filler once nothing more compelling is nearby.
                 non_shopping = [p for p in avail if p["bucket"] != "shopping"]
                 pick_from = nearby_landmarks or non_shopping or avail
                 candidate = min(pick_from, key=lambda p: haversine_km(last, p))
@@ -360,8 +339,7 @@ def generate_itinerary(interests, food_style, pace, days, transport_mode, day_st
     clusters = kmeans_clusters(attraction_pool, days)
 
     if stay_point:
-        # Explore outward from where the traveler is staying: nearest cluster is Day 1.
-        # Empty clusters (can happen if the pool is smaller than `days`) sort last.
+        # Nearest cluster to the stay location is Day 1; empty clusters sort last.
         def distance_from_stay(cluster):
             if not cluster:
                 return float("inf")
